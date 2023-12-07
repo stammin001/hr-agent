@@ -1,0 +1,10 @@
+langchain
+streamlit
+bs4
+html2text
+openai==0.28.1
+tiktoken
+faiss-cpu
+zeep
+jq
+datamodel-code-generator
