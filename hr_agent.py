@@ -11,7 +11,7 @@ from langchain.callbacks import StreamlitCallbackHandler
 from langchain.tools import tool
 from langchain.tools.json.tool import JsonSpec
 from langchain.agents import OpenAIFunctionsAgent, AgentExecutor, load_tools
-from langchain_experimental.tools.python.tool import PythonREPLTool
+#from langchain_experimental.tools.python.tool import PythonREPLTool
 from langchain.agents.agent_toolkits import create_retriever_tool, JsonToolkit
 from langchain.agents.openai_functions_agent.agent_token_buffer_memory import (AgentTokenBufferMemory,)
 from langchain.chat_models import ChatOpenAI
