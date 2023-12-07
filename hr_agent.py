@@ -21,10 +21,10 @@ from langsmith import Client
 
 import os, openai, requests, json, zeep, datetime
 from requests.auth import HTTPBasicAuth
-from dotenv import load_dotenv, find_dotenv
+#from dotenv import load_dotenv, find_dotenv
 from zeep.wsse.username import UsernameToken
 
-_ = load_dotenv(find_dotenv()) # read local .env file
+#_ = load_dotenv(find_dotenv()) # read local .env file
 openai.api_key  = os.getenv('OPENAI_API_KEY')
 
 TENANT = 'wdmarketdesk_dpt1'
