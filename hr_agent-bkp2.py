@@ -18,9 +18,8 @@ from langchain.chat_models import ChatOpenAI
 from langchain.schema import SystemMessage, AIMessage, HumanMessage
 from langchain.prompts import MessagesPlaceholder
 from langsmith import Client
-from langchain_community.vectorstores.redis import Redis
 
-import os, openai, requests, json, zeep, datetime, pandas as pd
+import os, openai, requests, json, zeep, datetime
 from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv, find_dotenv
 from zeep.wsse.username import UsernameToken
@@ -28,9 +27,7 @@ from zeep.wsse.username import UsernameToken
 _ = load_dotenv(find_dotenv()) # read local .env file
 openai.api_key  = os.getenv('OPENAI_API_KEY')
 #model = "gpt-4-1106-preview"
-model = "gpt-3.5-turbo-16k"
-
-embeddings = OpenAIEmbeddings()
+model = "gpt-3.5-turbo"
 
 TENANT = 'wdmarketdesk_dpt1'
 WD_USER_ID = os.getenv('WD_USER_ID')
@@ -56,13 +53,6 @@ st.set_page_config(
 
 "# Ask HR🦜🔗"
 
-with st.form(key='login_form'):
-    col1, col2, col3 = st.columns([1,2,1])
-    with col1:
-        input_number = st.number_input(label='Enter Employee ID', min_value=0, max_value=1000000)
-    login_submit = st.form_submit_button(label='Submit')
-
-
 def get_raas_data():
     response = requests.get(WD_Worker_URL, auth = basicAuth)
     responseJson = json.dumps(json.loads(response.content))
@@ -86,25 +76,8 @@ def get_worker_data():
 
     response = zeep_client.service.Get_Workers(worker_request_dict) 
     return response.Response_Data
-
-#@st.cache_resource(ttl="4h")
-def initialize_retriever_redis(employee_id=0):
-    """Initializes with all of worker data. If any information is not found, \
-    please use this tool as the default tool to look for the data needed. \
-    Do not try to get the same data more than 2 times.
-    """
-    print("Initializing with Worker data in Redis")
-    rds = Redis.from_existing_index(
-        embeddings,
-        index_name="worker_hr",
-        redis_url="redis://redis-10042.c280.us-central1-2.gce.cloud.redislabs.com:10042",
-        password="1iI48215k0GAEC3gzmpfPrXD2UDXYOYN",
-        schema="worker_hr.yaml"
-    )
-
-    return rds.as_retriever(search_type="similarity", 
-                            search_kwargs={"k": 10, "filter": employee_id if employee_id!=0 else None})
-
+    
+    
 #@st.cache_resource(ttl="4h")
 def initialize_retriever():
     """Initializes with all of worker data. If any information is not found, \
@@ -269,7 +242,7 @@ def add_additional_job(Job_Requisition_ID: str, effective_date: datetime.date) -
 
 
 tool = create_retriever_tool(
-    initialize_retriever_redis(input_number),
+    initialize_retriever(),
     "Ask_HR",
     """Initializes with all of worker data. If any information is not found, \
     please use this tool as the default tool to look for the data needed. \
@@ -290,7 +263,8 @@ comp = create_retriever_tool(
     "get_Comp_Data",
     """Returns Compensation or comp or salary data. \
     Use this for any questions related to knowing about compensation or salary information. \
-    If what is needed is not found, please use Ask_HR tool as the default tool instead. \
+    The input can be an empty string or employee ID, \
+    and this function will return data as string or JSON structure \
     """)
 
 tools = [tool, absence, comp, update_business_title, add_additional_job]
@@ -330,9 +304,7 @@ prompt = OpenAIFunctionsAgent.create_prompt(
     system_message=message,
     extra_prompt_messages=[MessagesPlaceholder(variable_name="history")],
 )
-
 agent = OpenAIFunctionsAgent(llm=chat_llm, tools=tools, prompt=prompt)
-
 agent_executor = AgentExecutor(
     agent=agent,
     tools=tools,
@@ -340,19 +312,15 @@ agent_executor = AgentExecutor(
     return_intermediate_steps=True,
 )
 memory = AgentTokenBufferMemory(llm=chat_llm)
-
 starter_message = "Hello and Welcome. I am here to help you with your HR needs!!"
 
-if login_submit:
-    agent_executor(
-        {"input": '', "history": st.session_state.messages, "employee_id": input_number},
-    )
-
-if "messages" not in st.session_state or st.sidebar.button("Clear message history") or login_submit:
+if "messages" not in st.session_state or st.sidebar.button("Clear message history"):
     st.session_state["messages"] = [AIMessage(content=starter_message)]
+
 
 def send_feedback(run_id, score):
     client.create_feedback(run_id, "user_score", score=score)
+
 
 for msg in st.session_state.messages:
     if isinstance(msg, AIMessage):
@@ -361,12 +329,13 @@ for msg in st.session_state.messages:
         st.chat_message("user").write(msg.content)
     memory.chat_memory.add_message(msg)
 
+
 if prompt := st.chat_input(placeholder=starter_message):
     st.chat_message("user").write(prompt)
     with st.chat_message("assistant"):
         st_callback = StreamlitCallbackHandler(st.container())
         response = agent_executor(
-            {"input": prompt, "history": st.session_state.messages, "employee_id": input_number},
+            {"input": prompt, "history": st.session_state.messages},
             callbacks=[st_callback],
             include_run_info=True,
         )
@@ -385,4 +354,4 @@ if prompt := st.chat_input(placeholder=starter_message):
 
         #with col2:
         #    st.button('👎', on_click=send_feedback, args=(run_id, 0))
-    
+        
