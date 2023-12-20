@@ -22,10 +22,10 @@ from langchain_community.vectorstores.redis import Redis
 
 import os, openai, requests, json, zeep, datetime, pandas as pd
 from requests.auth import HTTPBasicAuth
-from dotenv import load_dotenv, find_dotenv
+#from dotenv import load_dotenv, find_dotenv
 from zeep.wsse.username import UsernameToken
 
-_ = load_dotenv(find_dotenv()) # read local .env file
+#_ = load_dotenv(find_dotenv()) # read local .env file
 openai.api_key  = os.getenv('OPENAI_API_KEY')
 #model = "gpt-4-1106-preview"
 model = "gpt-3.5-turbo-16k"
