@@ -38,7 +38,7 @@ WD_USER_ID = os.getenv('WD_USER_ID')
 WD_PWD = os.getenv('WD_PWD')
 WD_Worker_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Data?format=json"
 WD_Absence_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Absence_Data_2?format=json&employee_id="
-WD_COMP_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Comp_Data?format=json"
+WD_COMP_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Comp_Data_2?format=json&employee_id="
 WD_STAFFING_WSDL_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/wdmarketdesk_dpt1/Staffing/v41.1?wsdl"
 WD_HR_WSDL_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/wdmarketdesk_dpt1/Human_Resources/v42.0?wsdl"
 
@@ -180,16 +180,17 @@ def get_Absence_Data(Employee_ID: str) -> str:
     return get_vectorstore(responseJson)
 
 @tool
-@st.cache_resource(ttl="4h")
+#@st.cache_resource(ttl="4h")
 def get_Comp_Data(text: str) -> str:
     """Returns Compensation or comp or salary data. \
     Use this for any questions related to knowing about compensation or salary information. \
     The input of text can not be empty string. \
     and this function will return data as string or JSON structure \
     """
-    print("Getting comp data from Workday")
-    response = requests.get(WD_COMP_URL, auth = basicAuth)
+    print(f"Getting comp data from Workday {WD_COMP_URL + str(input_number)}")
+    response = requests.get(WD_COMP_URL + str(input_number), auth = basicAuth)
     responseJson = json.dumps(json.loads(response.content))
+    print(f"Comp Data: {responseJson}")
     
     return get_vectorstore(responseJson)
 
