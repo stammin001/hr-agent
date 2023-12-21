@@ -19,6 +19,7 @@ from langchain.schema import SystemMessage, AIMessage, HumanMessage
 from langchain.prompts import MessagesPlaceholder
 from langsmith import Client
 from langchain_community.vectorstores.redis import Redis
+from langchain.vectorstores.redis import RedisText, RedisNum, RedisTag
 
 import os, openai, requests, json, zeep, datetime, pandas as pd
 from requests.auth import HTTPBasicAuth
@@ -36,7 +37,7 @@ TENANT = 'wdmarketdesk_dpt1'
 WD_USER_ID = os.getenv('WD_USER_ID')
 WD_PWD = os.getenv('WD_PWD')
 WD_Worker_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Data?format=json"
-WD_Absence_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Absence_Data?format=json"
+WD_Absence_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Absence_Data_2?format=json&employee_id="
 WD_COMP_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/customreport2/wdmarketdesk_dpt1/xjin-impl/Worker_Comp_Data?format=json"
 WD_STAFFING_WSDL_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/wdmarketdesk_dpt1/Staffing/v41.1?wsdl"
 WD_HR_WSDL_URL = "https://impl-services1.wd12.myworkday.com/ccx/service/wdmarketdesk_dpt1/Human_Resources/v42.0?wsdl"
@@ -97,21 +98,10 @@ def get_worker_data():
     return response.Response_Data
 
 def get_worker_name(employee_id=0):
-    print("Trying to get Wroker Name")
-    retriever = rds.as_retriever(search_type="similarity", 
-                            search_kwargs={"k": 10, "filter": employee_id if employee_id!=0 else None})
-    
-    if retriever is not None:
-        print("Getting worker name from Redis")
-        docs = retriever.get_relevant_documents("")
-        if len(docs) > 0:
-            worker_name = docs[0].metadata['Employee_Legal_Full_Name']
-        if worker_name is not None:
-            return worker_name
-        else:
-            return ""
-    else:
-        return ""
+    print("Trying to get Worker Name")
+    is_emp_id = RedisNum("Employee_ID") == employee_id
+    results = rds.similarity_search_with_score("", k=3, filter=is_emp_id if is_emp_id!=0 else None)
+    return results[0][0].metadata['Employee_Legal_Full_Name']
 
 #@st.cache_resource(ttl="4h")
 def initialize_retriever_redis(employee_id=0):
@@ -119,18 +109,18 @@ def initialize_retriever_redis(employee_id=0):
     please use this tool as the default tool to look for the data needed. \
     Do not try to get the same data more than 2 times.
     """
-    print("Initializing with Worker data in Redis")
-    rds = Redis.from_existing_index(
+    print("Initializing with Worker data in Redis", employee_id)
+    rds2 = Redis.from_existing_index(
         embeddings,
         index_name="worker_hr",
         redis_url="redis://redis-10042.c280.us-central1-2.gce.cloud.redislabs.com:10042",
         password="1iI48215k0GAEC3gzmpfPrXD2UDXYOYN",
         schema="worker_hr.yaml"
     )
+    print("returning from Redis")
 
-    retriever = rds.as_retriever(search_type="similarity", 
+    return rds2.as_retriever(search_type="similarity", 
                             search_kwargs={"k": 10, "filter": employee_id if employee_id!=0 else None})
-    return retriever
 
 #@st.cache_resource(ttl="4h")
 def initialize_retriever():
@@ -176,16 +166,17 @@ def get_vectorstore(txt):
     vectorstore = FAISS.from_documents(docs, embeddings)
     return vectorstore.as_retriever(search_kwargs={"k": 4})
 
-@st.cache_resource(ttl="4h")
-def get_Absence_Data(text: str) -> str:
+#@st.cache_resource(ttl="4h")
+def get_Absence_Data(Employee_ID: str) -> str:
     """Returns PTO or absence or time off data. \
     Use this for any questions related to knowing about PTO or absence or time off data. \
-    The input can be an empty string or employee ID, \
+    Use Employee ID as the input, \
     and this function will return data as string or JSON structure \
     """
-    print("Getting absence data from Workday")
-    response = requests.get(WD_Absence_URL, auth = basicAuth)
+    print(f"Getting absence data from Workday {WD_Absence_URL + str(input_number)}")
+    response = requests.get(WD_Absence_URL + str(input_number), auth = basicAuth)
     responseJson = json.dumps(json.loads(response.content))    
+    print(f"Absence Data: {responseJson}")
     return get_vectorstore(responseJson)
 
 @tool
@@ -193,7 +184,7 @@ def get_Absence_Data(text: str) -> str:
 def get_Comp_Data(text: str) -> str:
     """Returns Compensation or comp or salary data. \
     Use this for any questions related to knowing about compensation or salary information. \
-    The input can be an empty string or employee ID, \
+    The input of text can not be empty string. \
     and this function will return data as string or JSON structure \
     """
     print("Getting comp data from Workday")
@@ -370,13 +361,8 @@ memory = AgentTokenBufferMemory(llm=chat_llm)
 
 starter_message = f"Hello and Welcome. I am here to help you with your HR needs!!"
 
-if login_submit:
-    starter_message = f"Hello and Welcome {get_worker_name(input_number)}. I am here to help you with your HR needs!!"
-    agent_executor(
-        {"input": '', "history": st.session_state.messages, "employee_id": input_number},
-    )
-
 if "messages" not in st.session_state or st.sidebar.button("Clear message history") or login_submit:
+    starter_message = f"Hello and Welcome. I am here to help you with your HR needs!!"
     st.session_state["messages"] = [AIMessage(content=starter_message)]
 
 def send_feedback(run_id, score):
@@ -398,6 +384,7 @@ if prompt := st.chat_input(placeholder=starter_message):
             callbacks=[st_callback],
             include_run_info=True,
         )
+        print("returned from agent executor")
         st.session_state.messages.append(AIMessage(content=response["output"]))
         st.write(response["output"])
         memory.save_context({"input": prompt}, response)
