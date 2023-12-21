@@ -46,6 +46,15 @@ wd_hr_client = zeep.Client(WD_HR_WSDL_URL, wsse=UsernameToken(WD_USER_ID + '@' +
 wd_staffing_client = zeep.Client(WD_STAFFING_WSDL_URL, wsse=UsernameToken(WD_USER_ID + '@' + TENANT, WD_PWD))
 
 client = Client()
+rds = Redis.from_existing_index(
+        embeddings,
+        index_name="worker_hr",
+        redis_url="redis://redis-10042.c280.us-central1-2.gce.cloud.redislabs.com:10042",
+        password="1iI48215k0GAEC3gzmpfPrXD2UDXYOYN",
+        schema="worker_hr.yaml"
+    )
+
+retriever = None
 
 st.set_page_config(
     page_title="Ask HR",
@@ -87,6 +96,23 @@ def get_worker_data():
     response = zeep_client.service.Get_Workers(worker_request_dict) 
     return response.Response_Data
 
+def get_worker_name(employee_id=0):
+    print("Trying to get Wroker Name")
+    retriever = rds.as_retriever(search_type="similarity", 
+                            search_kwargs={"k": 10, "filter": employee_id if employee_id!=0 else None})
+    
+    if retriever is not None:
+        print("Getting worker name from Redis")
+        docs = retriever.get_relevant_documents("")
+        if len(docs) > 0:
+            worker_name = docs[0].metadata['Employee_Legal_Full_Name']
+        if worker_name is not None:
+            return worker_name
+        else:
+            return ""
+    else:
+        return ""
+
 #@st.cache_resource(ttl="4h")
 def initialize_retriever_redis(employee_id=0):
     """Initializes with all of worker data. If any information is not found, \
@@ -102,8 +128,9 @@ def initialize_retriever_redis(employee_id=0):
         schema="worker_hr.yaml"
     )
 
-    return rds.as_retriever(search_type="similarity", 
+    retriever = rds.as_retriever(search_type="similarity", 
                             search_kwargs={"k": 10, "filter": employee_id if employee_id!=0 else None})
+    return retriever
 
 #@st.cache_resource(ttl="4h")
 def initialize_retriever():
@@ -341,9 +368,10 @@ agent_executor = AgentExecutor(
 )
 memory = AgentTokenBufferMemory(llm=chat_llm)
 
-starter_message = "Hello and Welcome. I am here to help you with your HR needs!!"
+starter_message = f"Hello and Welcome. I am here to help you with your HR needs!!"
 
 if login_submit:
+    starter_message = f"Hello and Welcome {get_worker_name(input_number)}. I am here to help you with your HR needs!!"
     agent_executor(
         {"input": '', "history": st.session_state.messages, "employee_id": input_number},
     )
