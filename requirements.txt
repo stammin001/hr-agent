@@ -8,3 +8,4 @@ faiss-cpu
 zeep
 jq
 datamodel-code-generator
+redis
