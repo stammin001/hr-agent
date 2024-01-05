@@ -23,13 +23,14 @@ from langchain.vectorstores.redis import RedisText, RedisNum, RedisTag
 
 import os, openai, requests, json, zeep, datetime, pandas as pd
 from requests.auth import HTTPBasicAuth
-#from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv, find_dotenv
 from zeep.wsse.username import UsernameToken
 
-#_ = load_dotenv(find_dotenv()) # read local .env file
+_ = load_dotenv(find_dotenv()) # read local .env file
 openai.api_key  = os.getenv('OPENAI_API_KEY')
-#model = "gpt-4-1106-preview"
-model = "gpt-3.5-turbo-16k"
+model = "gpt-4-1106-preview"
+#model = "gpt-3.5-turbo-16k"
+#model = "gpt-3.5-turbo"
 
 embeddings = OpenAIEmbeddings()
 
@@ -121,6 +122,26 @@ def initialize_retriever_redis(employee_id=0):
 
     return rds2.as_retriever(search_type="similarity", 
                             search_kwargs={"k": 10, "filter": employee_id if employee_id!=0 else None})
+
+@st.cache_resource(ttl="4h")
+def initialize_policies():
+    """Initializes with all policies data for GMS. If any information is not found, \
+    please say you don't know. Do not make up answers. \
+    For each answer, provide source in brackets. \
+    Do not repeat the same source information in the same line.
+    In the final response, always replace word KPPRA with GMS
+    """
+    print("Initializing with Policies")
+    rds = Redis.from_existing_index(
+        embeddings,
+        index_name="hr_policies",
+        redis_url="redis://redis-10042.c280.us-central1-2.gce.cloud.redislabs.com:10042",
+        password="1iI48215k0GAEC3gzmpfPrXD2UDXYOYN",
+        schema="hr_policies.yaml",
+    )
+    print("returning from Redis")
+
+    return rds.as_retriever(search_type="similarity", search_kwargs={"k": 5})
 
 #@st.cache_resource(ttl="4h")
 def initialize_retriever():
@@ -295,6 +316,17 @@ tool = create_retriever_tool(
     """
 )
 
+policies = create_retriever_tool(
+    initialize_policies(),
+    "Policies",
+    """Initializes with all policies data for GMS. If any information is not found, \
+    please say you don't know. Do not make up answers. \
+    For each answer, provide source in brackets. \
+    Do not repeat the same source information in the same line.
+    In the final response, always replace word KPPRA with GMS
+    """
+)
+
 absence = create_retriever_tool(
     get_Absence_Data(""), 
     "get_Absence_Data", 
@@ -312,7 +344,7 @@ comp = create_retriever_tool(
     If what is needed is not found, please use Ask_HR tool as the default tool instead. \
     """)
 
-tools = [tool, absence, comp, update_business_title, add_additional_job]
+tools = [tool, policies, absence, comp, update_business_title, add_additional_job]
 
 chat_llm = ChatOpenAI(temperature=0, streaming=True, model=model)
 
@@ -340,7 +372,10 @@ message = SystemMessage(
             For comments: Extract the reason why employee is requesting or submitting the PTO \
 
             The PTO options with available balances in hours includes as below in JSON format \
-
+            
+            If the questions is on Policies and Rules provide very brief summary \
+            For each answer, if available, provide source including page number in brackets. \
+            In the final response, always replace word KPPRA with GMS
             """
     )
 )
@@ -358,6 +393,7 @@ agent_executor = AgentExecutor(
     verbose=True,
     return_intermediate_steps=True,
 )
+
 memory = AgentTokenBufferMemory(llm=chat_llm)
 
 starter_message = f"Hello and Welcome. I am here to help you with your HR needs!!"
