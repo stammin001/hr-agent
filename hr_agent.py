@@ -371,7 +371,7 @@ comp = create_retriever_tool(
     If what is needed is not found, please use Ask_HR tool as the default tool instead. \
     """)
 
-tools = [tool, policies, update_business_title, add_additional_job]
+tools = [tool, policies, absence, comp, update_business_title, add_additional_job]
 
 try:
     set_llm_cache(get_cache())
