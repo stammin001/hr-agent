@@ -51,7 +51,7 @@ basicAuth = HTTPBasicAuth(WD_USER_ID, WD_PWD)
 wd_hr_client = zeep.Client(WD_HR_WSDL_URL, wsse=UsernameToken(WD_USER_ID + '@' + TENANT, WD_PWD)) 
 wd_staffing_client = zeep.Client(WD_STAFFING_WSDL_URL, wsse=UsernameToken(WD_USER_ID + '@' + TENANT, WD_PWD))
 
-client = Client()
+#client = Client()
 rds = Redis.from_existing_index(
         embeddings,
         index_name="worker_hr",
@@ -371,7 +371,7 @@ comp = create_retriever_tool(
     If what is needed is not found, please use Ask_HR tool as the default tool instead. \
     """)
 
-tools = [tool, policies, absence, comp, update_business_title, add_additional_job]
+tools = [tool, policies, update_business_title, add_additional_job]
 
 try:
     set_llm_cache(get_cache())
@@ -438,8 +438,8 @@ if "messages" not in st.session_state or st.sidebar.button("Clear message histor
     starter_message = f"Hello and Welcome. I am here to help you with your HR needs!!"
     st.session_state["messages"] = [AIMessage(content=starter_message)]
 
-def send_feedback(run_id, score):
-    client.create_feedback(run_id, "user_score", score=score)
+#def send_feedback(run_id, score):
+ #   client.create_feedback(run_id, "user_score", score=score)
 
 for msg in st.session_state.messages:
     if isinstance(msg, AIMessage):
