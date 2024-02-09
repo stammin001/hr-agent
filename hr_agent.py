@@ -1,35 +1,39 @@
 import streamlit as st
 
-from langchain.document_loaders import RecursiveUrlLoader, TextLoader, JSONLoader
-from langchain.document_transformers import Html2TextTransformer
+import langchain
+from langchain_community.document_loaders import RecursiveUrlLoader, TextLoader, JSONLoader
+from langchain_community.document_transformers import Html2TextTransformer
 from langchain.docstore.document import Document
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_community.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter, CharacterTextSplitter
 from langchain.vectorstores.faiss import FAISS
-from langchain.vectorstores import Chroma
-from langchain.callbacks import StreamlitCallbackHandler
+from langchain_community.vectorstores import Chroma
+from langchain_community.callbacks import StreamlitCallbackHandler
 from langchain.tools import tool
 from langchain.tools.json.tool import JsonSpec
 from langchain.agents import OpenAIFunctionsAgent, AgentExecutor, load_tools
 #from langchain_experimental.tools.python.tool import PythonREPLTool
-from langchain.agents.agent_toolkits import create_retriever_tool, JsonToolkit
+from langchain_community.agent_toolkits import JsonToolkit
+from langchain.tools.retriever import create_retriever_tool
 from langchain.agents.openai_functions_agent.agent_token_buffer_memory import (AgentTokenBufferMemory,)
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models.openai import ChatOpenAI
 from langchain.schema import SystemMessage, AIMessage, HumanMessage
 from langchain.prompts import MessagesPlaceholder
 from langsmith import Client
 from langchain_community.vectorstores.redis import Redis
 from langchain.vectorstores.redis import RedisText, RedisNum, RedisTag
+from langchain.memory import RedisChatMessageHistory
+from langchain.globals import set_llm_cache
 
 import os, openai, requests, json, zeep, datetime, pandas as pd
 from requests.auth import HTTPBasicAuth
-#from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv, find_dotenv
 from zeep.wsse.username import UsernameToken
 
 #_ = load_dotenv(find_dotenv()) # read local .env file
 openai.api_key  = os.getenv('OPENAI_API_KEY')
-model = "gpt-4-1106-preview"
-#model = "gpt-3.5-turbo-16k"
+#model = "gpt-4-1106-preview"
+model = "gpt-3.5-turbo-16k"
 #model = "gpt-3.5-turbo"
 
 embeddings = OpenAIEmbeddings()
@@ -74,6 +78,24 @@ with st.form(key='login_form'):
     login_submit = st.form_submit_button(label='Submit')
 
 
+def get_cache():
+    # construct cache implementation based on env var
+    CACHE_TYPE = os.getenv("CACHE_TYPE", "semantic")
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+    if CACHE_TYPE == "semantic":
+        from langchain.cache import RedisSemanticCache
+        print("Using semantic cache")
+        return RedisSemanticCache(
+            redis_url=REDIS_URL,
+            embedding=embeddings,
+            score_threshold=0.001,
+        )
+    else:
+        from langchain.cache import RedisCache
+        from langchain_community.utilities import redis
+        print("Using regular cache")
+        return RedisCache(redis_= redis.get_client(REDIS_URL))
+    
 def get_raas_data():
     response = requests.get(WD_Worker_URL, auth = basicAuth)
     responseJson = json.dumps(json.loads(response.content))
@@ -123,7 +145,7 @@ def initialize_retriever_redis(employee_id=0):
     return rds2.as_retriever(search_type="similarity", 
                             search_kwargs={"k": 10, "filter": employee_id if employee_id!=0 else None})
 
-@st.cache_resource(ttl="4h")
+#@st.cache_resource(ttl="4h")
 def initialize_policies():
     """Initializes with all policies data for GMS. If any information is not found, \
     please say you don't know. Do not make up answers. \
@@ -175,7 +197,7 @@ def init_json_loader():
     
     return vector_store.as_retriever(search_kwargs={"k": 4})
 
-@st.cache_resource(ttl="4h")
+#@st.cache_resource(ttl="4h")
 def get_vectorstore(txt):
     # Split text
     text_splitter = CharacterTextSplitter()
@@ -244,8 +266,12 @@ def update_business_title(business_title: str) -> str:
             'Proposed_Business_Title': business_title
         }
     }
-
-    responseJson = wd_hr_client.service.Change_Business_Title(Business_Process_Parameters, Change_Business_Title_Business_Process_Data)
+    try:
+        responseJson = wd_hr_client.service.Change_Business_Title(Business_Process_Parameters, Change_Business_Title_Business_Process_Data)
+    except zeep.exceptions.Fault as error:
+        responseJson = error
+    except BaseException as error:
+        responseJson = error
     return (responseJson)
 
 @tool
@@ -322,7 +348,8 @@ policies = create_retriever_tool(
     """Initializes with all policies data for GMS. If any information is not found, \
     please say you don't know. Do not make up answers. \
     For each answer, provide source in brackets. \
-    Do not repeat the same source information in the same line.
+    Do not repeat the same source information in the same line. \
+    Do not call this tool more than 2 times. \
     In the final response, always replace word KPPRA with GMS
     """
 )
@@ -345,6 +372,14 @@ comp = create_retriever_tool(
     """)
 
 tools = [tool, policies, absence, comp, update_business_title, add_additional_job]
+
+try:
+    set_llm_cache(get_cache())
+    print("*** Retrieved cache ***")
+except Exception as e:
+    print("*** Could not retrieve cache ***")
+    print(e)
+    pass
 
 chat_llm = ChatOpenAI(temperature=0, streaming=True, model=model)
 
@@ -395,6 +430,7 @@ agent_executor = AgentExecutor(
 )
 
 memory = AgentTokenBufferMemory(llm=chat_llm)
+#redis_memory = RedisChatMessageHistory()
 
 starter_message = f"Hello and Welcome. I am here to help you with your HR needs!!"
 
